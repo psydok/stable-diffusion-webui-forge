@@ -803,8 +803,8 @@ def manage_model_and_prompt_cache(p: StableDiffusionProcessing):
 
     p.sd_model, just_reloaded = forge_model_reload()
 
-    if need_global_unload and not just_reloaded:
-        memory_management.unload_all_models()
+    # if need_global_unload and not just_reloaded:
+    #     memory_management.unload_all_models()
 
     if need_global_unload:
         p.clear_prompt_cache()

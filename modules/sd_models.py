@@ -396,6 +396,8 @@ class SdModelData:
     def __init__(self):
         self.sd_model = FakeInitialModel()
         self.forge_loading_parameters = {}
+        self.loaded_sd_models = []
+        self.was_loaded_at_least_once = False
         self.forge_hash = ''
 
     def get_sd_model(self):
@@ -403,6 +405,12 @@ class SdModelData:
 
     def set_sd_model(self, v):
         self.sd_model = v
+        try:
+            self.loaded_sd_models.remove(v)
+        except ValueError:
+            pass
+        if v is not None:
+            self.loaded_sd_models.insert(0, v)
 
 
 model_data = SdModelData()
@@ -421,11 +429,15 @@ def model_target_device(m):
 
 
 def send_model_to_device(m):
-    pass
+    m.to(shared.device)
 
 
 def send_model_to_trash(m):
-    pass
+    try:
+        m.to(device="meta")
+    except:
+        pass
+    devices.torch_gc()
 
 
 def instantiate_from_config(config, state_dict=None):
@@ -440,9 +452,57 @@ def load_model(checkpoint_info=None, already_loaded_state_dict=None):
     pass
 
 
-def reuse_model_from_already_loaded(sd_model, checkpoint_info, timer):
-    pass
 
+def reuse_model_from_already_loaded(sd_model, checkpoint_info, timer):
+    """
+    Checks if the desired checkpoint from checkpoint_info is not already loaded in model_data.loaded_sd_models.
+    If it is loaded, returns that (moving it to GPU if necessary, and moving the currently loadded model to CPU if necessary).
+    If not, returns the model that can be used to load weights from checkpoint_info's file.
+    If no such model exists, returns None.
+    Additionally deletes loaded models that are over the limit set in settings (sd_checkpoints_limit).
+    """
+
+    if sd_model is not None and sd_model.sd_checkpoint_info.filename == checkpoint_info.filename:
+        return sd_model
+
+    if shared.opts.sd_checkpoints_keep_in_cpu:
+        send_model_to_cpu(sd_model)
+        timer.record("send model to cpu")
+
+    already_loaded = None
+    for i in reversed(range(len(model_data.loaded_sd_models))):
+        loaded_model = model_data.loaded_sd_models[i]
+        if loaded_model.sd_checkpoint_info.filename == checkpoint_info.filename:
+            already_loaded = loaded_model
+            continue
+
+        if len(model_data.loaded_sd_models) > shared.opts.sd_checkpoints_limit > 0:
+            print(f"Unloading model {len(model_data.loaded_sd_models)} over the limit of {shared.opts.sd_checkpoints_limit}: {loaded_model.sd_checkpoint_info.title}")
+            del model_data.loaded_sd_models[i]
+            send_model_to_trash(loaded_model)
+            timer.record("send model to trash")
+
+    if already_loaded is not None:
+        timer.record("send model to device")
+        model_data.set_sd_model(already_loaded)
+        print(f"Using already loaded model {already_loaded.sd_checkpoint_info.title}: done in {timer.summary()}")
+        return model_data.sd_model
+    elif shared.opts.sd_checkpoints_limit > 1 and len(model_data.loaded_sd_models) < shared.opts.sd_checkpoints_limit:
+        print(f"Loading model {checkpoint_info.title} ({len(model_data.loaded_sd_models) + 1} out of {shared.opts.sd_checkpoints_limit})")
+        model_data.sd_model = None
+        return None
+    elif len(model_data.loaded_sd_models) > 0:
+        sd_model = model_data.loaded_sd_models.pop()
+        model_data.sd_model = sd_model
+
+        sd_vae.base_vae = getattr(sd_model, "base_vae", None)
+        sd_vae.loaded_vae_file = getattr(sd_model, "loaded_vae_file", None)
+        sd_vae.checkpoint_info = sd_model.sd_checkpoint_info
+
+        print(f"Reusing loaded model {sd_model.sd_checkpoint_info.title} to load {checkpoint_info.title}")
+        return sd_model
+    else:
+        return None
 
 def reload_model_weights(sd_model=None, info=None, forced_reload=False):
     pass
@@ -472,9 +532,10 @@ def apply_token_merging(sd_model, token_merging_ratio):
 @torch.inference_mode()
 def forge_model_reload():
     current_hash = str(model_data.forge_loading_parameters)
+    just_reloaded = False
 
     if model_data.forge_hash == current_hash:
-        return model_data.sd_model, False
+        return model_data.sd_model, just_reloaded
 
     print('Loading Model: ' + str(model_data.forge_loading_parameters))
 
@@ -482,7 +543,7 @@ def forge_model_reload():
 
     if model_data.sd_model:
         model_data.sd_model = None
-        memory_management.unload_all_models()
+        # memory_management.unload_all_models()
         memory_management.soft_empty_cache()
         gc.collect()
 
@@ -501,6 +562,11 @@ def forge_model_reload():
     dynamic_args['forge_unet_storage_dtype'] = model_data.forge_loading_parameters.get('unet_storage_dtype', None)
     dynamic_args['embedding_dir'] = cmd_opts.embeddings_dir
     dynamic_args['emphasis_name'] = opts.emphasis
+    sd_model = model_data.sd_model
+    sd_model = reuse_model_from_already_loaded(sd_model, checkpoint_info, timer)
+    if sd_model is not None:
+        return sd_model, just_reloaded
+    just_reloaded = True
     sd_model = forge_loader(state_dict, additional_state_dicts=additional_state_dicts)
     timer.record("forge model load")
 
@@ -523,4 +589,4 @@ def forge_model_reload():
 
     model_data.forge_hash = current_hash
 
-    return sd_model, True
+    return sd_model, just_reloaded
