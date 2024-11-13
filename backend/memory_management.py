@@ -559,7 +559,10 @@ def unload_model_clones(model):
         current_loaded_models.pop(i).model_unload(avoid_model_moving=True)
 
 
-def free_memory(memory_required, device, keep_loaded=[], free_all=False):
+def free_memory(memory_required, device, keep_loaded=None, free_all=False):
+    if keep_loaded is None:
+        keep_loaded = []
+    sd_checkpoints_limit = args.sd_checkpoints_limit
     if free_all:
         memory_required = 1e30
         print(f"[Unload] Trying to free all memory for {device} with {len(keep_loaded)} models keep loaded ... ", end="")
@@ -576,12 +579,14 @@ def free_memory(memory_required, device, keep_loaded=[], free_all=False):
                 break
         shift_model = current_loaded_models[i]
         if shift_model.device == device:
-            if shift_model not in keep_loaded:
-                m = current_loaded_models.pop(i)
-                print(f"Unload model {m.model.model.__class__.__name__} ", end="")
+            if sd_checkpoints_limit < 1 and len(current_loaded_models) > sd_checkpoints_limit:
+                m = current_loaded_models[i]
                 m.model_unload()
-                del m
                 unloaded_model = True
+                if shift_model not in keep_loaded:
+                    current_loaded_models.remove(m)
+                    print(f"Unload model {m.model.model.__class__.__name__} ", end="")
+                    del m
 
     if unloaded_model:
         soft_empty_cache()

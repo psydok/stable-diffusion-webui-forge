@@ -58,6 +58,8 @@ parser.add_argument("--pin-shared-memory", action="store_true")
 
 parser.add_argument("--disable-gpu-warning", action="store_true")
 
+parser.add_argument("--sd-checkpoints-limit", type=int, default=1)
+
 args = parser.parse_known_args()[0]
 
 # Some dynamic args that may be changed by webui rather than cmd flags.
