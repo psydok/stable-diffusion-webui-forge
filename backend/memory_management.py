@@ -560,38 +560,38 @@ def unload_model_clones(model):
 
 
 def free_memory(memory_required, device, keep_loaded=[], free_all=False):
-    # if free_all:
-    #     memory_required = 1e30
-    #     print(f"[Unload] Trying to free all memory for {device} with {len(keep_loaded)} models keep loaded ... ", end="")
-    # else:
-    #     print(f"[Unload] Trying to free {memory_required / (1024 * 1024):.2f} MB for {device} with {len(keep_loaded)} models keep loaded ... ", end="")
+    if free_all:
+        memory_required = 1e30
+        print(f"[Unload] Trying to free all memory for {device} with {len(keep_loaded)} models keep loaded ... ", end="")
+    else:
+        print(f"[Unload] Trying to free {memory_required / (1024 * 1024):.2f} MB for {device} with {len(keep_loaded)} models keep loaded ... ", end="")
 
-    # offload_everything = ALWAYS_VRAM_OFFLOAD or vram_state == VRAMState.NO_VRAM
-    # unloaded_model = False
-    # for i in range(len(current_loaded_models) - 1, -1, -1):
-    #     if not offload_everything:
-    #         free_memory = get_free_memory(device)
-    #         print(f"Current free memory is {free_memory / (1024 * 1024):.2f} MB ... ", end="")
-    #         if free_memory > memory_required:
-    #             break
-    #     shift_model = current_loaded_models[i]
-    #     if shift_model.device == device:
-    #         if shift_model not in keep_loaded:
-    #             m = current_loaded_models.pop(i)
-    #             print(f"Unload model {m.model.model.__class__.__name__} ", end="")
-    #             m.model_unload()
-    #             del m
-    #             unloaded_model = True
+    offload_everything = ALWAYS_VRAM_OFFLOAD or vram_state == VRAMState.NO_VRAM
+    unloaded_model = False
+    for i in range(len(current_loaded_models) - 1, -1, -1):
+        if not offload_everything:
+            free_memory = get_free_memory(device)
+            print(f"Current free memory is {free_memory / (1024 * 1024):.2f} MB ... ", end="")
+            if free_memory > memory_required:
+                break
+        shift_model = current_loaded_models[i]
+        if shift_model.device == device:
+            if shift_model not in keep_loaded:
+                m = current_loaded_models.pop(i)
+                print(f"Unload model {m.model.model.__class__.__name__} ", end="")
+                m.model_unload()
+                del m
+                unloaded_model = True
 
-    # if unloaded_model:
-    #     soft_empty_cache()
-    # else:
-    #     if vram_state != VRAMState.HIGH_VRAM:
-    #         mem_free_total, mem_free_torch = get_free_memory(device, torch_free_too=True)
-    #         if mem_free_torch > mem_free_total * 0.25:
-    #             soft_empty_cache()
+    if unloaded_model:
+        soft_empty_cache()
+    else:
+        if vram_state != VRAMState.HIGH_VRAM:
+            mem_free_total, mem_free_torch = get_free_memory(device, torch_free_too=True)
+            if mem_free_torch > mem_free_total * 0.25:
+                soft_empty_cache()
 
-    # print('Done.')
+    print('Done.')
     return
 
 
@@ -1201,5 +1201,4 @@ def soft_empty_cache(force=False):
 
 
 def unload_all_models():
-    # free_memory(1e30, get_torch_device(), free_all=True)
-    pass
+    free_memory(1e30, get_torch_device(), free_all=True)
